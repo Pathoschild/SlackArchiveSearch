@@ -5,6 +5,19 @@ VisualStudioVersion = 14.0.23107.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Pathoschild.SlackArchiveSearch", "Pathoschild.SlackArchiveSearch.csproj", "{7B01D673-C251-49CD-89C3-B677D1E09B58}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "meta", "meta", "{1051BB20-4933-4A62-AE08-BF8882954E61}"
+	ProjectSection(SolutionItems) = preProject
+		.gitignore = .gitignore
+		README.md = README.md
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "screenshots", "screenshots", "{9149B2E2-79C9-447D-B086-8DB1A6F69D99}"
+	ProjectSection(SolutionItems) = preProject
+		screenshots\search-1.png = screenshots\search-1.png
+		screenshots\search-2.png = screenshots\search-2.png
+		screenshots\search-3.png = screenshots\search-3.png
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -18,5 +31,8 @@ Global
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{9149B2E2-79C9-447D-B086-8DB1A6F69D99} = {1051BB20-4933-4A62-AE08-BF8882954E61}
 	EndGlobalSection
 EndGlobal
