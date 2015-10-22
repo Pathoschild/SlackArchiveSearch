@@ -14,6 +14,9 @@ namespace Pathoschild.SlackArchiveSearch
         /*********
         ** Accessors
         *********/
+        /// <summary>The directory to which to write archive data.</summary>
+        private static readonly string DataDirectory = Path.Combine(Path.GetTempPath(), "slack archive search");
+
         /// <summary>The number of matches to show on the screen at a time.</summary>
         const int PageSize = 5;
 
@@ -24,32 +27,91 @@ namespace Pathoschild.SlackArchiveSearch
         /// <summary>The console app entry point.</summary>
         public static void Main()
         {
-            // locate archive directory
-            string archiveDirectory;
+            // load archive data
+            Cache data;
             while (true)
             {
-                Console.WriteLine("Enter the directory path for the Slack archive:");
-                archiveDirectory = Console.ReadLine();
+                // choose archive directory
+                Console.WriteLine("Enter the directory path of the Slack archive (or leave it blank to use the last import):");
+                string archiveDirectory = Console.ReadLine();
 
-                if (String.IsNullOrWhiteSpace(archiveDirectory))
-                    continue;
+                // load previous import
+                if (string.IsNullOrWhiteSpace(archiveDirectory))
+                {
+                    Console.WriteLine("Reading cache...");
+                    data = Program.FetchCache(Program.DataDirectory);
+                    if (data == null)
+                    {
+                        Console.WriteLine("There's no cached import available.");
+                        continue;
+                    }
+                    break;
+                }
+
+                // import new data
                 if (!Directory.Exists(archiveDirectory))
                 {
                     Console.WriteLine("There's no directory at that path.");
                     continue;
                 }
 
+                Console.WriteLine("Reading archive...");
+                data = Program.RebuildArchive(Program.DataDirectory, archiveDirectory);
                 break;
             }
-            Console.WriteLine();
 
+            // search archive data
+            while (true)
+            {
+                // show header
+                Console.Clear();
+                Console.WriteLine($"Found {data.Messages.Length} messages by {data.Users.Count} users in {data.Channels.Count} channels, posted between {data.Messages.Min(p => p.Date).ToString("yyyy-MM-dd HH:mm")} and {data.Messages.Max(p => p.Date).ToString("yyyy-MM-dd HH:mm")}.");
+                Console.WriteLine($"All times are shown in {TimeZone.CurrentTimeZone.StandardName}.");
+                Console.WriteLine("\nWhat message text do you want to search?");
+
+                // get search string
+                string search = Console.ReadLine();
+                if (search == null)
+                    continue;
+
+                // get matches
+                Message[] matches = (
+                    from message in data.Messages
+                    where message.Text != null && message.Text.Contains(search)
+                    orderby message.Date descending
+                    select message
+                ).ToArray();
+                Program.DisplayResults(matches, data.Channels, data.Users, Program.PageSize);
+            }
+        }
+
+
+        /*********
+        ** Private methods
+        *********/
+        /// <summary>Interactively read data from a Slack archive into the cache.</summary>
+        /// <param name="dataDirectory">The directory from which to load archive data.</param>
+        /// <returns>Returns the cached data if it exists, else <c>null</c>.</returns>
+        private static Cache FetchCache(string dataDirectory)
+        {
+            string cacheFile = Path.Combine(dataDirectory, "cache.json");
+            if (!File.Exists(cacheFile))
+                return null;
+
+            string json = File.ReadAllText(cacheFile);
+            return JsonConvert.DeserializeObject<Cache>(json);
+        }
+
+        /// <summary>Interactively read data from a Slack archive into the cache.</summary>
+        /// <param name="dataDirectory">The directory to which to write archive data.</param>
+        /// <param name="archiveDirectory">The archive directory to import.</param>
+        private static Cache RebuildArchive(string dataDirectory, string archiveDirectory)
+        {
             // read metadata
-            Console.WriteLine("Reading metadata...");
-            IDictionary<string, User> users = Program.ReadFile<List<User>>(Path.Combine(archiveDirectory, "users.json")).ToDictionary(p => p.ID);
-            IDictionary<string, Channel> channels = Program.ReadFile<List<Channel>>(Path.Combine(archiveDirectory, "channels.json")).ToDictionary(p => p.ID);
+            Dictionary<string, User> users = Program.ReadFile<List<User>>(Path.Combine(archiveDirectory, "users.json")).ToDictionary(p => p.ID);
+            Dictionary<string, Channel> channels = Program.ReadFile<List<Channel>>(Path.Combine(archiveDirectory, "channels.json")).ToDictionary(p => p.ID);
 
             // read channel messages
-            Console.WriteLine("Reading channel messages...");
             List<Message> messages = new List<Message>();
             foreach (Channel channel in channels.Values)
             {
@@ -62,38 +124,16 @@ namespace Pathoschild.SlackArchiveSearch
                 }
             }
 
-            // enable interactive search
-            Console.WriteLine("Done!\n");
-            
-            while (true)
-            {
-                // show header
-                Console.Clear();
-                Console.WriteLine($"Found {messages.Count} messages by {users.Count} users in {channels.Count} channels, posted between {messages.Min(p => p.Date).ToString("yyyy-MM-dd HH:mm")} and {messages.Max(p => p.Date).ToString("yyyy-MM-dd HH:mm")}.");
-                Console.WriteLine($"All times are shown in {TimeZone.CurrentTimeZone.StandardName}.");
-                Console.WriteLine("\nWhat message text do you want to search?");
+            // cache data
+            Directory.CreateDirectory(dataDirectory);
+            string cacheFile = Path.Combine(dataDirectory, "cache.json");
+            Cache cache = new Cache { Channels = channels, Users = users, Messages = messages.ToArray() };
+            File.WriteAllText(cacheFile, JsonConvert.SerializeObject(cache));
 
-                // get search string
-                string search = Console.ReadLine();
-                if (search == null)
-                    continue;
-
-                // get matches
-                Message[] matches = (
-                    from message in messages
-                    where message.Text != null && message.Text.Contains(search)
-                    orderby message.Date descending
-                    select message
-                ).ToArray();
-                Program.DisplayResults(matches, channels, users, Program.PageSize);
-            }
+            return cache;
         }
 
-
-        /*********
-        ** Private methods
-        *********/
-        /// <summary>Display search results interactively.</summary>
+        /// <summary>Interactively display search results.</summary>
         /// <param name="matches">The search results.</param>
         /// <param name="channels">The known channels.</param>
         /// <param name="users">The known users.</param>
@@ -155,7 +195,7 @@ namespace Pathoschild.SlackArchiveSearch
                 }
             }
         }
-            
+
         /// <summary>Read an option from the command line.</summary>
         /// <param name="message">The question to ask.</param>
         /// <param name="options">The accepted values.</param>

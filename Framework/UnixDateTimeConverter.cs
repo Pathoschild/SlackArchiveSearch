@@ -42,6 +42,7 @@ namespace Pathoschild.SlackArchiveSearch.Framework
             switch (reader.TokenType)
             {
                 case JsonToken.Integer:
+                case JsonToken.Float:
                     timestamp = (double)reader.Value;
                     break;
 
