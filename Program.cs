@@ -14,9 +14,6 @@ namespace Pathoschild.SlackArchiveSearch
         /*********
         ** Accessors
         *********/
-        /// <summary>The extracted message archive folder exported from Slack.</summary>
-        const string MessageArchiveDirectory = @"C:\Users\jesse\Downloads\GuestDriven Slack export Oct 21 2015\";
-
         /// <summary>The number of matches to show on the screen at a time.</summary>
         const int PageSize = 5;
 
@@ -27,17 +24,36 @@ namespace Pathoschild.SlackArchiveSearch
         /// <summary>The console app entry point.</summary>
         public static void Main()
         {
+            // locate archive directory
+            string archiveDirectory;
+            while (true)
+            {
+                Console.WriteLine("Enter the directory path for the Slack archive:");
+                archiveDirectory = Console.ReadLine();
+
+                if (String.IsNullOrWhiteSpace(archiveDirectory))
+                    continue;
+                if (!Directory.Exists(archiveDirectory))
+                {
+                    Console.WriteLine("There's no directory at that path.");
+                    continue;
+                }
+
+                break;
+            }
+            Console.WriteLine();
+
             // read metadata
             Console.WriteLine("Reading metadata...");
-            IDictionary<string, User> users = Program.ReadFile<List<User>>(Path.Combine(MessageArchiveDirectory, "users.json")).ToDictionary(p => p.ID);
-            IDictionary<string, Channel> channels = Program.ReadFile<List<Channel>>(Path.Combine(MessageArchiveDirectory, "channels.json")).ToDictionary(p => p.ID);
+            IDictionary<string, User> users = Program.ReadFile<List<User>>(Path.Combine(archiveDirectory, "users.json")).ToDictionary(p => p.ID);
+            IDictionary<string, Channel> channels = Program.ReadFile<List<Channel>>(Path.Combine(archiveDirectory, "channels.json")).ToDictionary(p => p.ID);
 
             // read channel messages
             Console.WriteLine("Reading channel messages...");
             List<Message> messages = new List<Message>();
             foreach (Channel channel in channels.Values)
             {
-                foreach (string path in Directory.EnumerateFiles(Path.Combine(MessageArchiveDirectory, channel.Name)))
+                foreach (string path in Directory.EnumerateFiles(Path.Combine(archiveDirectory, channel.Name)))
                 {
                     var channelMessages = Program.ReadFile<List<Message>>(path);
                     foreach (Message message in channelMessages)
@@ -116,7 +132,7 @@ namespace Pathoschild.SlackArchiveSearch
                 // print footer
                 if (matches.Length <= pageSize)
                     break;
-                Console.WriteLine($"Viewing matches {offset + 1}–{Math.Min(count, offset + 1 + pageSize)}.");
+                Console.WriteLine($"Viewing matches {offset + 1}–{Math.Min(count, offset + 1 + pageSize)} of {count}.");
                 string question = "";
                 if (offset > 0)
                     question += "[p]revious page  ";
