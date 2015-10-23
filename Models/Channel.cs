@@ -28,8 +28,5 @@ namespace Pathoschild.SlackArchiveSearch.Models
         /// <summary>The unique identifiers for the users currently in the channel.</summary>
         [JsonProperty("members")]
         public string[] MemberIds { get; set; }
-
-        /// <summary>The messages in the channel.</summary>
-        public Message[] Messages { get; set; }
     }
 }

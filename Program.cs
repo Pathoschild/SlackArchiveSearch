@@ -2,9 +2,18 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Lucene.Net.Analysis;
+using Lucene.Net.Analysis.Standard;
+using Lucene.Net.Documents;
+using Lucene.Net.Index;
+using Lucene.Net.QueryParsers;
+using Lucene.Net.Search;
+using Lucene.Net.Store;
 using Newtonsoft.Json;
 using Pathoschild.SlackArchiveSearch.Framework;
 using Pathoschild.SlackArchiveSearch.Models;
+using Directory = System.IO.Directory;
+using Version = Lucene.Net.Util.Version;
 
 namespace Pathoschild.SlackArchiveSearch
 {
@@ -16,6 +25,9 @@ namespace Pathoschild.SlackArchiveSearch
         *********/
         /// <summary>The directory to which to write archive data.</summary>
         private static readonly string DataDirectory = Path.Combine(Path.GetTempPath(), "slack archive search");
+
+        /// <summary>The directory to which to write archive data.</summary>
+        private static readonly string IndexDirectory = Path.Combine(DataDirectory, "index");
 
         /// <summary>The number of matches to show on the screen at a time.</summary>
         const int PageSize = 5;
@@ -55,8 +67,8 @@ namespace Pathoschild.SlackArchiveSearch
                     continue;
                 }
 
-                Console.WriteLine("Reading archive...");
-                data = Program.RebuildArchive(Program.DataDirectory, archiveDirectory);
+                data = Program.ImportArchive(Program.DataDirectory, archiveDirectory);
+                Program.RebuildIndex(data, Program.IndexDirectory);
                 break;
             }
 
@@ -67,20 +79,30 @@ namespace Pathoschild.SlackArchiveSearch
                 Console.Clear();
                 Console.WriteLine($"Found {data.Messages.Length} messages by {data.Users.Count} users in {data.Channels.Count} channels, posted between {data.Messages.Min(p => p.Date).ToString("yyyy-MM-dd HH:mm")} and {data.Messages.Max(p => p.Date).ToString("yyyy-MM-dd HH:mm")}.");
                 Console.WriteLine($"All times are shown in {TimeZone.CurrentTimeZone.StandardName}.");
-                Console.WriteLine("\nWhat message text do you want to search?");
+                Console.WriteLine();
+                Console.WriteLine("┌───Search syntax──────────────");
+                Console.WriteLine("│ You can enter simple text to search all fields, or use Lucene");
+                Console.WriteLine("│ search syntax: https://lucene.apache.org/core/2_9_4/queryparsersyntax.html");
+                Console.WriteLine("│ Available fields:");
+                Console.WriteLine("│   date (in ISO-8601 format like 2015-01-30T15:00:00Z, in local time);");
+                Console.WriteLine("│   channel (like 'lunch');");
+                Console.WriteLine("│   username (like 'jesse.plamondon');");
+                Console.WriteLine("│   text (in slack format).");
+                Console.WriteLine("│");
+                Console.WriteLine("│Example query:");
+                Console.WriteLine("│   channel:lunch AND username:jesse.plamondon AND pineapple");
+                Console.WriteLine("└──────────────────────────────");
+                Console.WriteLine();
+                Console.WriteLine("\nWhat do you want to search?");
+                Console.Write("> ");
 
                 // get search string
                 string search = Console.ReadLine();
                 if (search == null)
                     continue;
 
-                // get matches
-                Message[] matches = (
-                    from message in data.Messages
-                    where message.Text != null && message.Text.Contains(search)
-                    orderby message.Date descending
-                    select message
-                ).ToArray();
+                // show matches
+                Message[] matches = Program.SearchIndex(search, data, Program.IndexDirectory).ToArray();
                 Program.DisplayResults(matches, data.Channels, data.Users, Program.PageSize);
             }
         }
@@ -105,32 +127,118 @@ namespace Pathoschild.SlackArchiveSearch
         /// <summary>Interactively read data from a Slack archive into the cache.</summary>
         /// <param name="dataDirectory">The directory to which to write archive data.</param>
         /// <param name="archiveDirectory">The archive directory to import.</param>
-        private static Cache RebuildArchive(string dataDirectory, string archiveDirectory)
+        private static Cache ImportArchive(string dataDirectory, string archiveDirectory)
         {
             // read metadata
+            Console.WriteLine("Reading metadata...");
             Dictionary<string, User> users = Program.ReadFile<List<User>>(Path.Combine(archiveDirectory, "users.json")).ToDictionary(p => p.ID);
             Dictionary<string, Channel> channels = Program.ReadFile<List<Channel>>(Path.Combine(archiveDirectory, "channels.json")).ToDictionary(p => p.ID);
 
             // read channel messages
+            Console.WriteLine("Reading channel data...");
             List<Message> messages = new List<Message>();
             foreach (Channel channel in channels.Values)
             {
                 foreach (string path in Directory.EnumerateFiles(Path.Combine(archiveDirectory, channel.Name)))
                 {
+                    // read messages
                     var channelMessages = Program.ReadFile<List<Message>>(path);
                     foreach (Message message in channelMessages)
+                    {
+                        // inject message data
+                        message.MessageID = Guid.NewGuid().ToString("N");
+
+                        // inject channel data
                         message.ChannelID = channel.ID;
+                        message.ChannelName = channel.Name;
+
+                        // inject user data
+                        User user = message.UserID != null && users.ContainsKey(message.UserID) ? users[message.UserID] : null;
+                        if (user != null)
+                        {
+                            message.AuthorName = user.Name;
+                            message.AuthorUsername = user.UserName;
+                        }
+                        else
+                        {
+                            message.AuthorName = message.CustomUserName ?? message.UserID;
+                            message.AuthorUsername = message.CustomUserName ?? message.UserID;
+                        }
+                    }
                     messages.AddRange(channelMessages);
                 }
             }
 
             // cache data
+            Console.WriteLine("Writing cache...");
             Directory.CreateDirectory(dataDirectory);
             string cacheFile = Path.Combine(dataDirectory, "cache.json");
             Cache cache = new Cache { Channels = channels, Users = users, Messages = messages.ToArray() };
             File.WriteAllText(cacheFile, JsonConvert.SerializeObject(cache));
 
             return cache;
+        }
+
+        /// <summary>Interactively rebuild the search index.</summary>
+        /// <param name="data">The data to index.</param>
+        /// <param name="indexDirectory">The directory containing the search index.</param>
+        public static void RebuildIndex(Cache data, string indexDirectory)
+        {
+            // clear previous index
+            foreach (string file in Directory.EnumerateFiles(indexDirectory))
+                File.Delete(file);
+
+            // build Lucene index
+            Console.WriteLine("Building search index...");
+            using (FSDirectory directory = FSDirectory.Open(indexDirectory))
+            using (Analyzer analyzer = new StandardAnalyzer(Version.LUCENE_30))
+            using (IndexWriter writer = new IndexWriter(directory, analyzer, IndexWriter.MaxFieldLength.UNLIMITED))
+            {
+                foreach (var message in data.Messages.Reverse()) // index newer first to match how results are displayed
+                {
+                    Document doc = new Document();
+                    doc.Add(new Field("id", message.MessageID, Field.Store.YES, Field.Index.ANALYZED));
+                    doc.Add(new Field("date", message.Date.ToString("o"), Field.Store.YES, Field.Index.ANALYZED));
+                    doc.Add(new Field("channel", message.ChannelName, Field.Store.YES, Field.Index.ANALYZED));
+                    doc.Add(new Field("username", message.AuthorUsername ?? "", Field.Store.YES, Field.Index.ANALYZED));
+                    doc.Add(new Field("text", message.Text ?? "", Field.Store.YES, Field.Index.ANALYZED));
+                    writer.AddDocument(doc);
+                }
+                writer.Optimize();
+                writer.Flush(true, true, true);
+            }
+        }
+
+        /// <summary>Find messages matching an index search.</summary>
+        /// <param name="search">The search query.</param>
+        /// <param name="data">The data to search.</param>
+        /// <param name="indexDirectory">The directory containing the search index.</param>
+        public static IEnumerable<Message> SearchIndex(string search, Cache data, string indexDirectory)
+        {
+            using (FSDirectory directory = FSDirectory.Open(indexDirectory))
+            using (IndexReader reader = IndexReader.Open(directory, true))
+            using (Searcher searcher = new IndexSearcher(reader))
+            using (Analyzer analyzer = new StandardAnalyzer(Version.LUCENE_30))
+            {
+                // search index
+                QueryParser parser = new MultiFieldQueryParser(Version.LUCENE_30, new[] { "id", "date", "channel", "username", "text"}, analyzer);
+                Query query = parser.Parse(search);
+                ScoreDoc[] hits = searcher.Search(query, null, 1000, Sort.INDEXORDER).ScoreDocs;
+
+                // return matches
+                foreach (ScoreDoc hit in hits)
+                {
+                    Document document = searcher.Doc(hit.Doc);
+                    string messageID = document.Get("id");
+                    Message message = data.Messages.FirstOrDefault(p => p.MessageID == messageID);
+                    if (message == null)
+                    {
+                        Console.WriteLine($"ERROR: couldn't find message #{messageID} matching the search index. The search index may be out of sync.");
+                        continue;
+                    }
+                    yield return message;
+                }
+            }
         }
 
         /// <summary>Interactively display search results.</summary>
@@ -140,18 +248,23 @@ namespace Pathoschild.SlackArchiveSearch
         /// <param name="pageSize">The number of items to show on the screen at one time.</param>
         private static void DisplayResults(Message[] matches, IDictionary<string, Channel> channels, IDictionary<string, User> users, int pageSize)
         {
+            // no matches
+            if (!matches.Any())
+            {
+                Console.WriteLine("No matches found. :(");
+                Console.WriteLine("Hit enter to continue.");
+                return;
+            }
+
             // format matches for output
             string[] output = matches.Select(message =>
             {
-                string username = message.CustomUserName ?? (message.UserID != null ? users[message.UserID].Name : "<no name>");
-                string channelName = channels[message.ChannelID].Name;
                 string formattedText = String.Join("\n│ ", message.Text.Split('\n'));
-
                 return
                     "┌──────────────────────────────\n"
                     + $"│ Date:    {message.Date.ToString("yyyy-MM-dd HH:mm")}\n"
-                    + $"│ Channel: #{channelName}\n"
-                    + $"│ User:    {username}\n"
+                    + $"│ Channel: #{message.ChannelName}\n"
+                    + $"│ User:    {message.AuthorUsername}\n"
                     + $"| {formattedText}\n"
                     + "└──────────────────────────────\n";
             }).ToArray();
@@ -170,8 +283,6 @@ namespace Pathoschild.SlackArchiveSearch
                 Console.WriteLine(String.Join("\n", output.Skip(offset).Take(pageSize)));
 
                 // print footer
-                if (matches.Length <= pageSize)
-                    break;
                 Console.WriteLine($"Viewing matches {offset + 1}–{Math.Min(count, offset + 1 + pageSize)} of {count}.");
                 string question = "";
                 if (offset > 0)
