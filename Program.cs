@@ -232,6 +232,9 @@ namespace Pathoschild.SlackArchiveSearch
             {
                 // build query parser
                 QueryParser parser = new MultiFieldQueryParser(Version.LUCENE_30, new[] { "id", "date", "channel", "user", "text"}, analyzer);
+                parser.DefaultOperator = QueryParser.Operator.AND;
+                parser.AllowLeadingWildcard = true;
+
                 // search index
                 Query query = parser.Parse(search);
                 ScoreDoc[] hits = searcher.Search(query, null, 1000, Sort.INDEXORDER).ScoreDocs;
