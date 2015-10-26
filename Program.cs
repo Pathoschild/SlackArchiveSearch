@@ -77,7 +77,7 @@ namespace Pathoschild.SlackArchiveSearch
             {
                 // show header
                 Console.Clear();
-                Console.WriteLine($"Found {data.Messages.Length} messages by {data.Users.Count} users in {data.Channels.Count} channels, posted between {data.Messages.Min(p => p.Date).ToString("yyyy-MM-dd HH:mm")} and {data.Messages.Max(p => p.Date).ToString("yyyy-MM-dd HH:mm")}.");
+                Console.WriteLine($"Found {data.Messages.Length} messages by {data.Users.Count} users in {data.Channels.Count} channels, posted between {data.Messages.Min(p => p.Date.LocalDateTime).ToString("yyyy-MM-dd HH:mm")} and {data.Messages.Max(p => p.Date.LocalDateTime).ToString("yyyy-MM-dd HH:mm")}.");
                 Console.WriteLine($"All times are shown in {TimeZone.CurrentTimeZone.StandardName}.");
                 Console.WriteLine();
                 Console.WriteLine("┌───Search syntax──────────────");
@@ -173,7 +173,12 @@ namespace Pathoschild.SlackArchiveSearch
             Console.WriteLine("Writing cache...");
             Directory.CreateDirectory(dataDirectory);
             string cacheFile = Path.Combine(dataDirectory, "cache.json");
-            Cache cache = new Cache { Channels = channels, Users = users, Messages = messages.ToArray() };
+            Cache cache = new Cache
+            {
+                Channels = channels,
+                Users = users,
+                Messages = messages.OrderByDescending(p => p.Date).ToArray() // sort newest first for index
+            };
             File.WriteAllText(cacheFile, JsonConvert.SerializeObject(cache));
 
             return cache;
@@ -194,7 +199,7 @@ namespace Pathoschild.SlackArchiveSearch
             using (Analyzer analyzer = new StandardAnalyzer(Version.LUCENE_30))
             using (IndexWriter writer = new IndexWriter(directory, analyzer, IndexWriter.MaxFieldLength.UNLIMITED))
             {
-                foreach (var message in data.Messages.Reverse()) // index newer first to match how results are displayed
+                foreach (var message in data.Messages)
                 {
                     Document doc = new Document();
                     doc.Add(new Field("id", message.MessageID, Field.Store.YES, Field.Index.ANALYZED));
@@ -262,7 +267,7 @@ namespace Pathoschild.SlackArchiveSearch
                 string formattedText = String.Join("\n│ ", message.Text.Split('\n'));
                 return
                     "┌──────────────────────────────\n"
-                    + $"│ Date:    {message.Date.ToString("yyyy-MM-dd HH:mm")}\n"
+                    + $"│ Date:    {message.Date.LocalDateTime.ToString("yyyy-MM-dd HH:mm")}\n"
                     + $"│ Channel: #{message.ChannelName}\n"
                     + $"│ User:    {message.AuthorUsername}\n"
                     + $"| {formattedText}\n"

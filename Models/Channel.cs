@@ -15,7 +15,7 @@ namespace Pathoschild.SlackArchiveSearch.Models
 
         /// <summary>When the channel was created (in the current timezone).</summary>
         [JsonConverter(typeof(UnixDateTimeConverter))]
-        public DateTime Created { get; set; }
+        public DateTimeOffset Created { get; set; }
 
         /// <summary>The unique identifier for the user who created the channel.</summary>
         [JsonProperty("creator")]

@@ -13,7 +13,7 @@ namespace Pathoschild.SlackArchiveSearch.Models
         /// <summary>When the message was posted.</summary>
         [JsonProperty("ts")]
         [JsonConverter(typeof(UnixDateTimeConverter))]
-        public DateTime Date { get; set; }
+        public DateTimeOffset Date { get; set; }
 
         /// <summary>The message author's unique identifier.</summary>
         [JsonProperty("user")]

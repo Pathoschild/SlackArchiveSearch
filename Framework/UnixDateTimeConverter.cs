@@ -3,7 +3,7 @@ using Newtonsoft.Json;
 
 namespace Pathoschild.SlackArchiveSearch.Framework
 {
-    /// <summary>A JSON.NET value converter which converts Unix-style epoch timestamps into .NET <see cref="DateTime" /> values.</summary>
+    /// <summary>A JSON.NET value converter which converts Unix-style epoch timestamps into UTC <see cref="DateTimeOffset" /> values.</summary>
     /// <remarks>Derived from http://stackapps.com/a/1176 .</remarks>
     public class UnixDateTimeConverter : JsonConverter
     {
@@ -11,7 +11,7 @@ namespace Pathoschild.SlackArchiveSearch.Framework
         /// <param name="objectType">Type of the object.</param>
         public override bool CanConvert(Type objectType)
         {
-            return objectType == typeof(DateTime) || objectType == typeof(DateTime?);
+            return objectType == typeof(DateTimeOffset);
         }
 
         /// <summary>Writes the JSON representation of the object.</summary>
@@ -21,12 +21,13 @@ namespace Pathoschild.SlackArchiveSearch.Framework
         public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
         {
             // invalid value
-            if (!(value is DateTime))
+            if (!(value is DateTimeOffset))
                 throw new Exception("Expected date object value.");
 
             // convert to Unix time
+            DateTime date = ((DateTimeOffset)value).UtcDateTime;
             DateTime epoch = new DateTime(1970, 1, 1);
-            double timestamp = ((DateTime)value - epoch).TotalSeconds;
+            double timestamp = (date - epoch).TotalSeconds;
             writer.WriteValue(timestamp);
         }
 
@@ -58,12 +59,11 @@ namespace Pathoschild.SlackArchiveSearch.Framework
                     break;
 
                 default:
-                    throw new Exception(
-                        $"Can't parse '{reader.TokenType}' type as a Unix epoch timestamp, must be numeric.");
+                    throw new Exception($"Can't parse '{reader.TokenType}' type as a Unix epoch timestamp, must be numeric.");
             }
 
             // convert to DateTime
-            DateTime epoch = new DateTime(1970, 1, 1);
+            DateTimeOffset epoch = new DateTimeOffset(new DateTime(1970, 1, 1), TimeSpan.Zero);
             return epoch.AddSeconds(timestamp);
         }
     }
