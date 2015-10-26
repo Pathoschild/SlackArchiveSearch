@@ -81,16 +81,20 @@ namespace Pathoschild.SlackArchiveSearch
                 Console.WriteLine($"All times are shown in {TimeZone.CurrentTimeZone.StandardName}.");
                 Console.WriteLine();
                 Console.WriteLine("┌───Search syntax──────────────");
-                Console.WriteLine("│ You can enter simple text to search all fields, or use Lucene");
+                Console.WriteLine("│ You can enter a simple query to search the message text, or use Lucene");
                 Console.WriteLine("│ search syntax: https://lucene.apache.org/core/2_9_4/queryparsersyntax.html");
+                Console.WriteLine("│ Search is not case-sensitive.");
+                Console.WriteLine("│");
                 Console.WriteLine("│ Available fields:");
-                Console.WriteLine("│   date (in ISO-8601 format like 2015-01-30T15:00:00Z, in local time);");
+                Console.WriteLine("│   date (in ISO-8601 format like 2015-01-30T15:00:00, in UTC);");
                 Console.WriteLine("│   channel (like 'lunch');");
-                Console.WriteLine("│   username (like 'jesse.plamondon');");
+                Console.WriteLine("│   user (like 'jesse.plamondon');");
                 Console.WriteLine("│   text (in slack format).");
                 Console.WriteLine("│");
-                Console.WriteLine("│Example query:");
-                Console.WriteLine("│   channel:lunch AND username:jesse.plamondon AND pineapple");
+                Console.WriteLine("│Example searches:");
+                Console.WriteLine("│   pineapple");
+                Console.WriteLine("│   channel:lunch user:jesse.plamondon pineapple");
+                Console.WriteLine("│   channel:(developers OR deployment) text:\"deployed release\"");
                 Console.WriteLine("└──────────────────────────────");
                 Console.WriteLine();
                 Console.WriteLine("\nWhat do you want to search?");
@@ -205,7 +209,7 @@ namespace Pathoschild.SlackArchiveSearch
                     doc.Add(new Field("id", message.MessageID, Field.Store.YES, Field.Index.ANALYZED));
                     doc.Add(new Field("date", message.Date.ToString("o"), Field.Store.YES, Field.Index.ANALYZED));
                     doc.Add(new Field("channel", message.ChannelName, Field.Store.YES, Field.Index.ANALYZED));
-                    doc.Add(new Field("username", message.AuthorUsername ?? "", Field.Store.YES, Field.Index.ANALYZED));
+                    doc.Add(new Field("user", message.AuthorUsername ?? "", Field.Store.YES, Field.Index.ANALYZED));
                     doc.Add(new Field("text", message.Text ?? "", Field.Store.YES, Field.Index.ANALYZED));
                     writer.AddDocument(doc);
                 }
@@ -220,13 +224,15 @@ namespace Pathoschild.SlackArchiveSearch
         /// <param name="indexDirectory">The directory containing the search index.</param>
         public static IEnumerable<Message> SearchIndex(string search, Cache data, string indexDirectory)
         {
+            // search index
             using (FSDirectory directory = FSDirectory.Open(indexDirectory))
             using (IndexReader reader = IndexReader.Open(directory, true))
             using (Searcher searcher = new IndexSearcher(reader))
             using (Analyzer analyzer = new StandardAnalyzer(Version.LUCENE_30))
             {
+                // build query parser
+                QueryParser parser = new MultiFieldQueryParser(Version.LUCENE_30, new[] { "id", "date", "channel", "user", "text"}, analyzer);
                 // search index
-                QueryParser parser = new MultiFieldQueryParser(Version.LUCENE_30, new[] { "id", "date", "channel", "username", "text"}, analyzer);
                 Query query = parser.Parse(search);
                 ScoreDoc[] hits = searcher.Search(query, null, 1000, Sort.INDEXORDER).ScoreDocs;
 
@@ -258,6 +264,7 @@ namespace Pathoschild.SlackArchiveSearch
             {
                 Console.WriteLine("No matches found. :(");
                 Console.WriteLine("Hit enter to continue.");
+                Console.ReadLine();
                 return;
             }
 
