@@ -224,6 +224,14 @@ namespace Pathoschild.SlackArchiveSearch
         /// <param name="indexDirectory">The directory containing the search index.</param>
         public static IEnumerable<Message> SearchIndex(string search, Cache data, string indexDirectory)
         {
+            // return all matches for no search
+            if (string.IsNullOrWhiteSpace(search))
+            {
+                foreach (Message message in data.Messages)
+                    yield return message;
+                yield break;
+            }
+            
             // search index
             using (FSDirectory directory = FSDirectory.Open(indexDirectory))
             using (IndexReader reader = IndexReader.Open(directory, true))
@@ -274,7 +282,7 @@ namespace Pathoschild.SlackArchiveSearch
             // format matches for output
             string[] output = matches.Select(message =>
             {
-                string formattedText = String.Join("\n│ ", message.Text.Split('\n'));
+                string formattedText = message.Text != null ? String.Join("\n│ ", message.Text.Split('\n')) : "";
                 return
                     "┌──────────────────────────────\n"
                     + $"│ Date:    {message.Date.LocalDateTime.ToString("yyyy-MM-dd HH:mm")}\n"
@@ -331,7 +339,7 @@ namespace Pathoschild.SlackArchiveSearch
             {
                 Console.WriteLine(message);
                 string response = Console.ReadLine();
-                if (response == null || response.Length > 1 || !options.Contains(response[0]))
+                if (string.IsNullOrEmpty(response) || !options.Contains(response[0]))
                 {
                     Console.WriteLine("Invalid answer.");
                     continue;
